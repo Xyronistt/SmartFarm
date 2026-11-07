@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div style="
+    position: relative;
+    width: min(80vh, 80vw, 800px);
+    height: min(80vh, 80vw, 800px);
+    margin: 16px auto;
+    border-radius: 8px;
+    border: 1px solid #bdc3c7;
+    background: #fafafa;
+    overflow: hidden;
+    box-sizing: border-box;
+">
+    <div id="greenhouse-plan" style="width: 100%; height: 100%;"></div>
+
+    <div style="position: absolute; top: 12px; right: 12px; z-index: 1000; display: flex; flex-direction: column; gap: 4px;">
+        <button type="button" onclick="map.zoomIn()" class="btn" style="padding: 6px 12px; font-size: 16px; line-height: 1;">+</button>
+        <button type="button" onclick="map.zoomOut()" class="btn" style="padding: 6px 12px; font-size: 16px; line-height: 1;">−</button>
+        <button type="button" onclick="fitWorld()" class="btn" style="padding: 6px 8px; font-size: 11px;">Fit</button>
+    </div>
+</div>
+
+<div style="max-width: 1600px; margin: 0 auto 16px auto; display: flex; gap: 16px; flex-wrap: wrap;">
+    <div class="card" style="flex: 1; min-width: 260px; margin: 0;">
+        <h3 style="margin-top: 0;">Новая зона</h3>
+        <form action="/map/api/add-zone" method="post">
+            <p style="margin: 0 0 8px 0;">
+                <label style="font-size: 13px; font-weight: bold;">Название:</label><br>
+                <input type="text" name="name" placeholder="Сектор №2" required
+                       style="width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box;">
+            </p>
+            <p style="margin: 0 0 8px 0;">
+                <label style="font-size: 13px; font-weight: bold;">Описание:</label><br>
+                <input type="text" name="description" placeholder="Томаты, капельный полив"
+                       style="width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box;">
+            </p>
+            <button class="btn btn-success" type="submit">Создать зону</button>
+        </form>
+    </div>
+
+    <div class="card" style="flex: 1; min-width: 260px; margin: 0;">
+        <h3 style="margin-top: 0;">Синхронизация</h3>
+        <p style="color: #7f8c8d; font-size: 13px; margin: 0;">
+            Перетаскивайте зоны и датчики мышью. Позиция синхронизируется с базой и десктоп-версией.
+        </p>
+        <p id="sync-indicator" style="margin-top: 10px; font-size: 12px; color: #7f8c8d;">
+            Синхронизация раскладки: загрузка…
+        </p>
+    </div>
+</div>
+
+<script>
+    const MAP_W  = 1000;
+    const MAP_H  = 1000;
+    const ZONE_W = 160;
+    const ZONE_H = 110;
+
+    const worldBounds = L.latLngBounds([[0, 0], [MAP_H, MAP_W]]);
+
+    const map = L.map('greenhouse-plan', {
+        crs: L.CRS.Simple,
+        minZoom: -2,
+        maxZoom: 4,
+        attributionControl: false,
+        maxBounds: worldBounds,
+        maxBoundsViscosity: 1.0,
+        zoomSnap: 0.25,
+        zoomDelta: 0.5,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        dragging: true,
+    });
+    map.fitBounds(worldBounds);
+    setTimeout(() => map.invalidateSize(), 100);
+
+    function fitWorld() { map.fitBounds(worldBounds); }
+
+    let zonesData   = [];
+    let devicesData = [];
+
+    const zonesRuntime   = {};
+    const devicesRuntime = {};
+
+    const dragState = {
+        zoneId: null,
+        startLatLng: null,
+    };
+    const draggingDevices = new Set();
+
+    map.on('mousemove', function(e) {
+        if (dragState.zoneId === null) return;
+        const rt = zonesRuntime[dragState.zoneId];
+        if (!rt) return;
+        const diffLat = e.latlng.lat - dragState.startLatLng.lat;
+        const diffLng = e.latlng.lng - dragState.startLatLng.lng;
+        dragState.startLatLng = e.latlng;
+
+        rt.data.lat += diffLat;
+        rt.data.lng += diffLng;
+        rt.rect.setBounds([[rt.data.lat - ZONE_H/2, rt.data.lng - ZONE_W/2],
+                           [rt.data.lat + ZONE_H/2, rt.data.lng + ZONE_W/2]]);
+        rt.label.setLatLng([rt.data.lat, rt.data.lng]);
+    });
+
+    map.on('mouseup', function() {
+        if (dragState.zoneId !== null) {
+            const id = dragState.zoneId;
+            const rt = zonesRuntime[id];
+            dragState.zoneId = null;
+            dragState.startLatLng = null;
+            map.dragging.enable();
+            if (rt) saveCoords(id, 'zone', rt.data.lat, rt.data.lng);
+        }
+        if (draggingDevices.size > 0) {
+            draggingDevices.forEach(id => {
+                const rt = devicesRuntime[id];
+                if (rt) {
+                    const pos = rt.marker.getLatLng();
+                    saveCoords(id, 'device', pos.lat, pos.lng);
+                }
+            });
+            draggingDevices.clear();
+        }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (dragState.zoneId !== null) {
+            const id = dragState.zoneId;
+            const rt = zonesRuntime[id];
+            dragState.zoneId = null;
+            dragState.startLatLng = null;
+            map.dragging.enable();
+            if (rt) saveCoords(id, 'zone', rt.data.lat, rt.data.lng);
+        }
+        if (draggingDevices.size > 0) {
+            draggingDevices.forEach(id => {
+                const rt = devicesRuntime[id];
+                if (rt) {
+                    const pos = rt.marker.getLatLng();
+                    saveCoords(id, 'device', pos.lat, pos.lng);
+                }
+            });
+            draggingDevices.clear();
+        }
+    });
+
+    function buildZonePopup(z) {
+        const attached = devicesData.filter(d => d.zone_id === z.id);
+        let html = `<b>Грядка: ${escapeHtml(z.name)}</b><br><small>${escapeHtml(z.description || '')}</small>`;
+
+        if (attached.length) {
+            html += "<br><br><b>Оборудование:</b><ul style='margin: 3px 0 5px 15px; padding: 0; font-size: 11px;'>";
+            attached.forEach(d => {
+                const info = d.temp !== null && d.temp !== undefined
+                    ? ` (${d.temp}°C, ${d.humidity}%)`
+                    : (d.state ? ` [Состояние: ${escapeHtml(d.state)}]` : " (Ожидание)");
+                html += `<li><b>${escapeHtml(d.name)}</b>${info}</li>`;
+            });
+            html += "</ul>";
+        } else {
+            html += "<br><br><span style='color: #7f8c8d; font-size: 11px;'>Нет устройств.</span>";
+        }
+
+        html += `
+            <div style="margin-top: 8px; border-top: 1px solid #ddd; padding-top: 5px;">
+                <a href="/zones/" class="btn" style="padding: 2px 6px; font-size: 11px; background: #f39c12;">Изменить в списке</a>
+                <form action="/zones/${z.id}/delete" method="post" style="display:inline;" onsubmit="return confirm('Удалить зону?');">
+                    <button class="btn btn-danger" style="padding: 2px 6px; font-size: 11px;" type="submit">Удалить</button>
+                </form>
+            </div>
+        `;
+        return html;
+    }
+
+    function createZoneLayer(z) {
+        const bounds = [[z.lat - ZONE_H/2, z.lng - ZONE_W/2],
+                        [z.lat + ZONE_H/2, z.lng + ZONE_W/2]];
+
+        const rect = L.rectangle(bounds, {
+            color: "#27ae60", weight: 2,
+            fillColor: "#d4efdf", fillOpacity: 0.7
+        }).addTo(map);
+
+        const labelIcon = L.divIcon({
+            className: 'zone-centered-label',
+            html: `<div style="width: ${ZONE_W - 15}px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: bold; color: #1e8449; text-align: center; pointer-events: none;">${escapeHtml(z.name)}</div>`,
+            iconSize: [ZONE_W - 15, 20],
+            iconAnchor: [(ZONE_W - 15) / 2, 10]
+        });
+        const label = L.marker([z.lat, z.lng], {icon: labelIcon, interactive: false}).addTo(map);
+
+        rect.bindPopup(() => buildZonePopup(z));
+
+        rect.on('mousedown', function(e) {
+            dragState.zoneId = z.id;
+            dragState.startLatLng = e.latlng;
+            map.dragging.disable();
+        });
+
+        zonesRuntime[z.id] = { data: z, rect, label };
+    }
+
+    function createDeviceLayer(d) {
+        const color = d.status === 'active' ? '#2980b9' : '#e74c3c';
+        const htmlIcon = `<div style="background: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.3);"></div>`;
+        const marker = L.marker([d.lat, d.lng], {
+            icon: L.divIcon({className: 'custom-map-icon', html: htmlIcon, iconSize: [16, 16]}),
+            draggable: true
+        }).addTo(map);
+
+        marker.bindPopup(() => {
+            let text = `<b>${escapeHtml(d.name)}</b><br>Тип: ${escapeHtml(d.subtype)}<br>`;
+            if (d.tank_level !== null && d.tank_level !== undefined) {
+                text += `Бак: <b>${d.tank_level}%</b><br>`;
+            }
+            text += d.state ? `Статус реле: <b>${escapeHtml(d.state)}</b>` : `Параметр в норме`;
+            return text;
+        });
+
+        marker.on('dragstart', () => draggingDevices.add(d.id));
+        marker.on('dragend', () => {
+            draggingDevices.delete(d.id);
+            const pos = marker.getLatLng();
+            saveCoords(d.id, 'device', pos.lat, pos.lng);
+        });
+
+        devicesRuntime[d.id] = { data: d, marker };
+    }
+
+    function applyLayout(layout) {
+        const aliveZoneIds = new Set();
+        layout.zones.forEach(zs => {
+            aliveZoneIds.add(zs.id);
+            const existing = zonesRuntime[zs.id];
+            if (!existing) {
+                const zd = {
+                    id: zs.id, name: zs.name, description: zs.description || '',
+                    lat: zs.lat, lng: zs.lng
+                };
+                zonesData.push(zd);
+                createZoneLayer(zd);
+            } else {
+                if (existing.data.name !== zs.name ||
+                    existing.data.description !== (zs.description || '')) {
+                    existing.data.name = zs.name;
+                    existing.data.description = zs.description || '';
+                    existing.rect.setPopupContent(buildZonePopup(existing.data));
+                }
+                if (dragState.zoneId !== zs.id &&
+                    (Math.abs(existing.data.lat - zs.lat) > 0.01 ||
+                     Math.abs(existing.data.lng - zs.lng) > 0.01)) {
+                    existing.data.lat = zs.lat;
+                    existing.data.lng = zs.lng;
+                    existing.rect.setBounds([[zs.lat - ZONE_H/2, zs.lng - ZONE_W/2],
+                                             [zs.lat + ZONE_H/2, zs.lng + ZONE_W/2]]);
+                    existing.label.setLatLng([zs.lat, zs.lng]);
+                }
+            }
+        });
+        Object.keys(zonesRuntime).forEach(zid => {
+            if (!aliveZoneIds.has(Number(zid))) {
+                const rt = zonesRuntime[zid];
+                map.removeLayer(rt.rect);
+                map.removeLayer(rt.label);
+                delete zonesRuntime[zid];
+                zonesData = zonesData.filter(z => z.id !== Number(zid));
+            }
+        });
+
+        const aliveDevIds = new Set();
+        layout.devices.forEach(ds => {
+            aliveDevIds.add(ds.id);
+            const existing = devicesRuntime[ds.id];
+            if (!existing) {
+                const dd = {
+                    id: ds.id, device_id: ds.device_id, name: ds.device_id,
+                    subtype: '', status: 'active', zone_id: ds.zone_id,
+                    lat: ds.lat, lng: ds.lng, temp: null, humidity: null, tank_level: null, state: ''
+                };
+                devicesData.push(dd);
+                createDeviceLayer(dd);
+            } else {
+                if (existing.data.zone_id !== ds.zone_id) {
+                    existing.data.zone_id = ds.zone_id;
+                }
+                if (!draggingDevices.has(ds.id) &&
+                    (Math.abs(existing.data.lat - ds.lat) > 0.01 ||
+                     Math.abs(existing.data.lng - ds.lng) > 0.01)) {
+                    existing.data.lat = ds.lat;
+                    existing.data.lng = ds.lng;
+                    existing.marker.setLatLng([ds.lat, ds.lng]);
+                }
+            }
+        });
+        Object.keys(devicesRuntime).forEach(did => {
+            if (!aliveDevIds.has(Number(did))) {
+                map.removeLayer(devicesRuntime[did].marker);
+                delete devicesRuntime[did];
+                devicesData = devicesData.filter(d => d.id !== Number(did));
+            }
+        });
+    }
+
+    function saveCoords(id, type, lat, lng) {
+        fetch('/map/api/update-coords', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, type, lat, lng })
+        });
+    }
+
+    let lastKnownVersion = null;
+    const indicator = document.getElementById('sync-indicator');
+
+    async function pollLayout() {
+        try {
+            const res = await fetch('/api/layout');
+            if (!res.ok) return;
+            const layout = await res.json();
+
+            const isFirst = lastKnownVersion === null;
+            const changed = isFirst || layout.version !== lastKnownVersion;
+            lastKnownVersion = layout.version;
+
+            if (isFirst) {
+                applyLayout(layout);
+                indicator.innerText = 'Синхронизация раскладки: активна';
+                return;
+            }
+            if (!changed) {
+                indicator.innerText = `Синхронизация: без изменений (v${layout.version})`;
+                return;
+            }
+
+            applyLayout(layout);
+            indicator.innerText = `Раскладка обновлена (v${layout.version})`;
+        } catch (e) {
+            console.warn('layout poll', e);
+        }
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[c]));
+    }
+
+    window.addEventListener('resize', () => map.invalidateSize());
+
+    pollLayout();
+    setInterval(pollLayout, 2000);
+</script>
+
+<style>
+    .zone-centered-label { background: transparent !important; border: none !important; box-shadow: none !important; }
+    .zone-centered-label::before { display: none !important; }
+</style>
+{% endblock %}

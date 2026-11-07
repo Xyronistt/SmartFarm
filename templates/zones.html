@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width: 700px; margin: auto; margin-bottom: 20px;">
+    <h2>Управление зонами и секторами теплицы</h2>
+    <p style="color: #7f8c8d; font-size: 14px;">Создавайте сектора для распределения датчиков и настройки автоматических сценариев.</p>
+
+    <form action="/zones/add" method="post" style="margin-top: 15px;">
+        <p>
+            <label style="font-weight: bold; font-size: 13px;">Название зоны:</label><br>
+            <input type="text" name="name" style="width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;" placeholder="Напр. Сектор гидропоники №1" required>
+        </p>
+        <p>
+            <label style="font-weight: bold; font-size: 13px;">Описание:</label><br>
+            <input type="text" name="description" style="width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;" placeholder="Томаты, капельный полив">
+        </p>
+        <p>
+            <label style="font-weight: bold; font-size: 13px;">Родительский сектор (опционально):</label><br>
+            <select name="parent_id" style="width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;">
+                <option value="">-- Главный уровень (Корневая зона) --</option>
+                {% for z in zones %}
+                <option value="{{ z.id }}">{{ z.name }}</option>
+                {% endfor %}
+            </select>
+        </p>
+        <button class="btn btn-success" type="submit" style="margin-top: 5px;">Создать зону</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Список созданных зон</h3>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Название зоны</th>
+            <th>Описание</th>
+            <th>Родительский ID</th>
+            <th>Действия</th>
+        </tr>
+        {% for z in zones %}
+        <tr>
+            <td><code>{{ z.id }}</code></td>
+            <td><b>{{ z.name }}</b></td>
+            <td>{{ z.description if z.description else '—' }}</td>
+            <td>{{ z.parent_id if z.parent_id else 'Корневая' }}</td>
+            <td>
+                <button class="btn" style="background: #f39c12; padding: 5px 10px;" onclick="openEditModal('{{ z.id }}', '{{ z.name }}', '{{ z.description }}', '{{ z.parent_id or '' }}')">Изменить</button>
+                <form action="/zones/{{ z.id }}/delete" method="post" style="display:inline;" onsubmit="return confirm('Удалить эту зону?');">
+                    <button class="btn btn-danger" style="padding: 5px 10px;" type="submit">Удалить</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #7f8c8d; padding: 20px;">Зоны еще не созданы.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div id="editModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center;">
+    <div class="card" style="width: 400px; background: white;">
+        <h3>Редактирование зоны</h3>
+        <form id="editForm" method="post">
+            <p>
+                <label style="font-weight: bold; font-size: 13px;">Название зоны:</label><br>
+                <input type="text" id="editName" name="name" style="width: 100%; padding: 8px; margin-top: 5px;" required>
+            </p>
+            <p>
+                <label style="font-weight: bold; font-size: 13px;">Описание:</label><br>
+                <input type="text" id="editDesc" name="description" style="width: 100%; padding: 8px; margin-top: 5px;">
+            </p>
+            <p>
+                <label style="font-weight: bold; font-size: 13px;">Родительский сектор:</label><br>
+                <select id="editParent" name="parent_id" style="width: 100%; padding: 8px; margin-top: 5px;">
+                    <option value="">-- Главный уровень (Корневая зона) --</option>
+                    {% for z in zones %}
+                    <option value="{{ z.id }}">{{ z.name }}</option>
+                    {% endfor %}
+                </select>
+            </p>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn btn-success" type="submit" style="flex: 1;">Сохранить</button>
+                <button class="btn" type="button" style="background: #7f8c8d; flex: 1;" onclick="closeEditModal()">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id, name, description, parentId) {
+        document.getElementById('editForm').action = `/zones/${id}/edit`;
+        document.getElementById('editName').value   = name;
+        document.getElementById('editDesc').value   = description;
+        document.getElementById('editParent').value = parentId;
+        document.getElementById('editModal').style.display = 'flex';
+    }
+    function closeEditModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+</script>
+{% endblock %}

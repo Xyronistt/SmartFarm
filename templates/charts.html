@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block content %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+<style>
+    .charts-toolbar {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 10px 0;
+    }
+    .charts-toolbar label {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--text-muted);
+        text-transform: none;
+        letter-spacing: 0;
+    }
+    .charts-toolbar select {
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 13px;
+        min-width: 150px;
+    }
+    .charts-toolbar .chk {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 10px;
+    }
+    @media (max-width: 1100px) { .charts-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px)  { .charts-grid { grid-template-columns: 1fr; } }
+
+    .chart-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px 6px 12px;
+        display: flex;
+        flex-direction: column;
+    }
+    .chart-card h4 {
+        margin: 0 0 6px 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+    }
+    .chart-card .chart-box {
+        position: relative;
+        width: 100%;
+        height: 200px;
+    }
+    .chart-card .empty-hint {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: center;
+        padding: 8px 0 4px 0;
+        display: none;
+    }
+    .sync-status {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-left: auto;
+    }
+</style>
+
+<div class="card">
+    <h2>Графики параметров</h2>
+    <p>Маленькие графики по каждому параметру. Выберите зону и период.</p>
+
+    <div class="charts-toolbar">
+        <label for="charts-zone">Зона:</label>
+        <select id="charts-zone">
+            <option value="">— Все зоны —</option>
+            {% for z in zones %}
+            <option value="{{ z.id }}">{{ z.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="charts-period">Период:</label>
+        <select id="charts-period">
+            <option value="15m">15 минут</option>
+            <option value="1h" selected>1 час</option>
+            <option value="6h">6 часов</option>
+            <option value="24h">24 часа</option>
+            <option value="7d">7 дней</option>
+        </select>
+
+        <label class="chk">
+            <input type="checkbox" id="charts-autoreload" checked>
+            Автообновление
+        </label>
+
+        <span id="charts-status" class="sync-status">загрузка…</span>
+    </div>
+</div>
+
+<div class="charts-grid" id="charts-grid"></div>
+
+<script>
+    const PARAMS = [
+        { field: "temperature", title: "Температура", unit: "°C" },
+        { field: "humidity",    title: "Влажность",   unit: "%" },
+        { field: "ph",          title: "pH",          unit: "" },
+        { field: "ec",          title: "EC",          unit: "мСм/см" },
+        { field: "co2",         title: "CO₂",         unit: "ppm" },
+        { field: "tank_level",  title: "Бак",         unit: "%" },
+    ];
+
+    const COLORS = [
+        "#22c55e", "#ef4444", "#3b82f6",
+        "#f59e0b", "#a855f7", "#06b6d4",
+        "#ec4899", "#8b5cf6", "#14b8a6",
+    ];
+
+    const charts = {};
+    const grid   = document.getElementById('charts-grid');
+    const status = document.getElementById('charts-status');
+
+    function chartTheme() {
+        const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+        return {
+            grid:   dark ? 'rgba(148,163,184,.12)' : '#f1f5f9',
+            ticks:  dark ? '#8ea0ba' : '#64748b',
+            legend: dark ? '#e6ecf5' : '#334155',
+        };
+    }
+
+    PARAMS.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'chart-card';
+        card.innerHTML = `
+            <h4>${p.title}${p.unit ? ', ' + p.unit : ''}</h4>
+            <div class="chart-box"><canvas id="chart-${p.field}"></canvas></div>
+            <div class="empty-hint" id="empty-${p.field}">Нет данных за выбранный период</div>
+        `;
+        grid.appendChild(card);
+
+        const t = chartTheme();
+        const ctx = document.getElementById(`chart-${p.field}`).getContext('2d');
+        charts[p.field] = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: [] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { mode: 'nearest', intersect: false },
+                plugins: {
+                    legend: {
+                        display: true, position: 'bottom',
+                        labels: { boxWidth: 10, boxHeight: 10, font: { size: 10 }, color: t.legend },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => items.length ? new Date(items[0].parsed.x).toLocaleString() : '',
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { tooltipFormat: 'PP pp' },
+                        ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 6, color: t.ticks },
+                        grid: { color: t.grid },
+                    },
+                    y: {
+                        ticks: { font: { size: 10 }, color: t.ticks },
+                        grid: { color: t.grid },
+                    },
+                },
+            },
+        });
+    });
+
+    function applyChartTheme() {
+        const t = chartTheme();
+        Object.values(charts).forEach(c => {
+            c.options.scales.x.ticks.color = t.ticks;
+            c.options.scales.y.ticks.color = t.ticks;
+            c.options.scales.x.grid.color  = t.grid;
+            c.options.scales.y.grid.color  = t.grid;
+            c.options.plugins.legend.labels.color = t.legend;
+            c.update('none');
+        });
+    }
+
+    async function loadCharts() {
+        const zoneId = document.getElementById('charts-zone').value;
+        const period = document.getElementById('charts-period').value;
+        const url = new URL('/api/charts', window.location.origin);
+        if (zoneId) url.searchParams.set('zone_id', zoneId);
+        url.searchParams.set('period', period);
+
+        status.innerText = 'загрузка…';
+        let data;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            data = await res.json();
+        } catch (e) {
+            status.innerText = 'ошибка: ' + e.message;
+            return;
+        }
+
+        const devNames = {};
+        data.devices.forEach(d => devNames[d.device_id] = d.name);
+
+        PARAMS.forEach(p => {
+            const chart = charts[p.field];
+            const series = data.series[p.field] || {};
+            const deviceIds = Object.keys(series);
+            const emptyHint = document.getElementById(`empty-${p.field}`);
+
+            if (deviceIds.length === 0) {
+                chart.data.datasets = [];
+                chart.update('none');
+                emptyHint.style.display = 'block';
+                return;
+            }
+            emptyHint.style.display = 'none';
+
+            chart.data.datasets = deviceIds.map((devId, idx) => {
+                const color = COLORS[idx % COLORS.length];
+                return {
+                    label: devNames[devId] || devId,
+                    data: series[devId].map(pt => ({ x: pt.t, y: pt.v })),
+                    borderColor: color,
+                    backgroundColor: color + '22',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.25,
+                    fill: false,
+                };
+            });
+            chart.options.scales.x.min = data.since;
+            chart.options.scales.x.max = new Date().toISOString();
+            chart.update('none');
+        });
+
+        const now = new Date().toLocaleTimeString();
+        status.innerText = `обновлено в ${now} · устройств: ${data.devices.length}`;
+    }
+
+    document.getElementById('charts-zone').addEventListener('change', loadCharts);
+    document.getElementById('charts-period').addEventListener('change', loadCharts);
+
+    let timerId = null;
+    function startAuto() {
+        if (timerId) clearInterval(timerId);
+        timerId = setInterval(loadCharts, 5000);
+    }
+    document.getElementById('charts-autoreload').addEventListener('change', (e) => {
+        if (e.target.checked) { startAuto(); loadCharts(); }
+        else if (timerId) { clearInterval(timerId); timerId = null; }
+    });
+
+    new MutationObserver(applyChartTheme).observe(document.documentElement,
+        { attributes: true, attributeFilter: ['data-theme'] });
+
+    loadCharts();
+    startAuto();
+</script>
+
+{% endblock %}

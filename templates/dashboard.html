@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Мониторинг теплицы</h2>
+    <p>Параметры секторов обновляются в реальном времени.</p>
+</div>
+
+<div class="stats-row">
+    <div class="stat-card">
+        <div class="label">Зон всего</div>
+        <div class="value">{{ zones_count }}</div>
+    </div>
+    <div class="stat-card accent">
+        <div class="label">Активных устройств</div>
+        <div class="value">{{ devices_count }}</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="label">Тревог / Событий</div>
+        <div class="value" id="alerts-count-badge">{{ alerts_count }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Состояние секторов</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Зона</th>
+                <th>Устройств</th>
+                <th>Температура</th>
+                <th>Влажность</th>
+                <th>pH</th>
+                <th>CO₂</th>
+                <th>Бак</th>
+            </tr>
+        </thead>
+        <tbody id="zones-table-body">
+            {% for item in zones_data %}
+            <tr data-zone-id="{{ item.zone.id }}">
+                <td><b>{{ item.zone.name }}</b></td>
+                <td>{{ item.devices_count }}</td>
+                <td class="val-temp">{{ item.temperature if item.temperature is not none else '—' }}</td>
+                <td class="val-hum" style="color: var(--info); font-weight: 600;">{{ item.humidity if item.humidity is not none else '—' }}</td>
+                <td class="val-ph">{{ item.ph if item.ph is not none else '—' }}</td>
+                <td class="val-co2">{{ item.co2 if item.co2 is not none else '—' }}</td>
+                <td class="val-tank" style="color: var(--accent-2); font-weight: 600;">{{ item.tank_level if item.tank_level is not none else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                    Зоны пока не созданы. Перейдите на вкладку «Зоны», чтобы добавить их.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function updateDashboardData() {
+    try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+
+        const alertBadge = document.getElementById('alerts-count-badge');
+        if (alertBadge) alertBadge.innerText = data.alerts_count;
+
+        data.zones_data.forEach(z => {
+            const row = document.querySelector(`tr[data-zone-id='${z.zone_id}']`);
+            if (row) {
+                row.querySelector('.val-temp').innerText = z.temperature;
+                row.querySelector('.val-hum').innerText  = z.humidity;
+                row.querySelector('.val-ph').innerText   = z.ph;
+                row.querySelector('.val-co2').innerText  = z.co2;
+                const tankCell = row.querySelector('.val-tank');
+                if (tankCell) tankCell.innerText = z.tank_level;
+            }
+        });
+    } catch (e) { console.error(e); }
+}
+setInterval(updateDashboardData, 3000);
+</script>
+{% endblock %}

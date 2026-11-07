@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Журнал аварий и событий безопасности</h2>
+    <table>
+        <tr>
+            <th>Время</th>
+            <th>Уровень</th>
+            <th>Заголовок</th>
+            <th>Сообщение</th>
+            <th>Статус</th>
+        </tr>
+        {% for a in alerts %}
+        <tr>
+            <td>{{ a.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td><b>{{ a.severity.upper() }}</b></td>
+            <td>{{ a.title or '—' }}</td>
+            <td>{{ a.message }}</td>
+            <td>{% if a.acknowledged %}Прочитано{% else %}<span style="color:red; font-weight:bold;">Новое</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Тревожных событий нет.</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

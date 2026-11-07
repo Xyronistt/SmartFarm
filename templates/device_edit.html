@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width: 600px; margin: auto;">
+    <h2>Конфигурация устройства: {{ device.name }}</h2>
+    <form action="/devices/{{ device.id }}/edit" method="post">
+        <p>
+            <label>Имя:</label><br>
+            <input type="text" name="name" value="{{ device.name }}" style="width: 100%; padding: 8px; margin-top: 5px;" required>
+        </p>
+        <p>
+            <label>Расположение (Зона):</label><br>
+            <select name="zone_id" style="width: 100%; padding: 8px; margin-top: 5px;">
+                {% for z in zones %}
+                <option value="{{ z.id }}" {% if device.zone_id == z.id %}selected{% endif %}>{{ z.name }}</option>
+                {% endfor %}
+            </select>
+        </p>
+        <p>
+            <label>Порог минимальной влажности почвы для полива (%):</label><br>
+            <input type="number" step="0.5" name="min_humidity" value="{{ config.get('min_humidity', 35.0) }}" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </p>
+        <p>
+            <label>Порог максимальной температуры для вентиляции (°C):</label><br>
+            <input type="number" step="0.5" name="max_temp" value="{{ config.get('max_temp', 30.0) }}" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </p>
+        <p>
+            <label>
+                <input type="checkbox" name="drain_serviced" value="true" {% if device.drain_serviced %}checked{% endif %}>
+                Дренаж слит / лоток обслужен (сброс блокировки перелива)
+            </label>
+        </p>
+        <button class="btn btn-success" type="submit">Сохранить параметры</button>
+        <a class="btn" style="background: #95a5a6;" href="/devices/">Назад</a>
+    </form>
+</div>
+{% endblock %}

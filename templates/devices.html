@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Управление устройствами и датчиками</h2>
+    <p style="color: #7f8c8d; font-size: 14px;">Список подключенных устройств обновляется в реальном времени.</p>
+</div>
+
+<div class="card">
+    <h3>Список зарегистрированных устройств</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ID устройства</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Параметр / Значение</th>
+                <th>Статус</th>
+                <th>Зона (Грядка)</th>
+            </tr>
+        </thead>
+        <tbody id="devices-table-body">
+            <tr><td colspan="6" style="text-align: center; color: #7f8c8d; padding: 25px;">Загрузка…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    let zonesList = [];
+    let devicesData = [];
+
+    async function loadZones() {
+        try {
+            const res = await fetch('/api/layout');
+            if (!res.ok) return;
+            const layout = await res.json();
+            zonesList = layout.zones.map(z => ({ id: z.id, name: z.name }));
+        } catch (e) {
+            console.warn('loadZones', e);
+        }
+    }
+
+    async function loadDevices() {
+        try {
+            const res = await fetch('/api/devices');
+            if (!res.ok) return;
+            const data = await res.json();
+            devicesData = data.devices;
+            renderDevicesTable();
+        } catch (e) {
+            console.error("Ошибка загрузки оборудования:", e);
+        }
+    }
+
+    function renderDevicesTable() {
+        const tbody = document.getElementById('devices-table-body');
+
+        if (devicesData.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #7f8c8d; padding: 25px;">Устройств пока нет. Запустите симулятор.</td></tr>`;
+            return;
+        }
+
+        let html = '';
+        devicesData.forEach(d => {
+            const statusHtml = d.status === 'active'
+                ? '<span style="color: #27ae60; font-weight: bold;">● Активен</span>'
+                : d.status === 'pending'
+                    ? '<span style="color: #e67e22; font-weight: bold;">● Ожидание</span>'
+                    : '<span style="color: #7f8c8d; font-weight: bold;">● Оффлайн</span>';
+
+            const typeHtml = d.type === 'sensor'
+                ? '<span class="badge" style="background: #e8f8f5; color: #16a085;">Датчик</span>'
+                : '<span class="badge" style="background: #fef9e7; color: #f39c12;">Исполнительный</span>';
+
+            let optionsHtml = `<option value="">-- Не привязана --</option>`;
+            zonesList.forEach(z => {
+                const selected = z.id === d.zone_id ? 'selected' : '';
+                optionsHtml += `<option value="${z.id}" ${selected}>${escapeHtml(z.name)}</option>`;
+            });
+
+            html += `
+                <tr data-device-pk="${d.id}">
+                    <td><code>${escapeHtml(d.device_id)}</code></td>
+                    <td><b>${escapeHtml(d.name)}</b></td>
+                    <td>${typeHtml}</td>
+                    <td><code style="color: #2980b9;">${escapeHtml(d.last_value)}</code></td>
+                    <td>${statusHtml}</td>
+                    <td>
+                        <select data-role="zone-select" data-device-pk="${d.id}"
+                                style="padding: 5px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc;">
+                            ${optionsHtml}
+                        </select>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+
+        tbody.querySelectorAll('select[data-role="zone-select"]').forEach(sel => {
+            sel.addEventListener('change', e => {
+                const devicePk = Number(e.target.dataset.devicePk);
+                updateDeviceZone(devicePk, e.target.value);
+            });
+        });
+    }
+
+    async function updateDeviceZone(devicePk, zoneId) {
+        try {
+            await fetch(`/devices/${devicePk}/bind-ajax`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ zone_id: zoneId })
+            });
+            const d = devicesData.find(x => x.id === devicePk);
+            if (d) {
+                d.zone_id = zoneId === '' ? null : Number(zoneId);
+                const z = zonesList.find(z => z.id === d.zone_id);
+                d.zone_name = z ? z.name : 'Не привязана';
+            }
+        } catch (e) {
+            alert("Ошибка привязки зоны");
+        }
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[c]));
+    }
+
+    (async () => {
+        await loadZones();
+        await loadDevices();
+    })();
+
+    setInterval(loadDevices, 3000);
+
+    setInterval(async () => {
+        const before = zonesList.map(z => z.id + ':' + z.name).join('|');
+        await loadZones();
+        const after = zonesList.map(z => z.id + ':' + z.name).join('|');
+        if (before !== after) {
+            renderDevicesTable();
+        }
+    }, 10000);
+</script>
+{% endblock %}

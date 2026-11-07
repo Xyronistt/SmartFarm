@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SmartFarm Hub</title>
+
+    <script>
+        (function() {
+            try {
+                var saved = localStorage.getItem('smartfarm-theme');
+                var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch (e) {}
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        :root {
+            --bg:           #f6f8fb;
+            --surface:      #ffffff;
+            --surface-2:    #f8fafc;
+            --border:       #e5eaf1;
+            --border-hover: #cbd5e1;
+            --text:         #0f172a;
+            --text-muted:   #64748b;
+            --accent:       #10b981;
+            --accent-2:     #059669;
+            --accent-soft:  #ecfdf5;
+            --danger:       #ef4444;
+            --danger-soft:  #fef2f2;
+            --warning:      #f59e0b;
+            --warning-soft: #fffbeb;
+            --info:         #3b82f6;
+            --info-soft:    #eff6ff;
+            --radius:       12px;
+            --radius-sm:    8px;
+            --shadow:       0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+            --shadow-hover: 0 8px 24px rgba(15,23,42,.08);
+            --header-bg:    rgba(255,255,255,0.85);
+            --code-bg:      #f8fafc;
+        }
+
+        [data-theme="dark"] {
+            --bg:           #0b1220;
+            --surface:      #111a2b;
+            --surface-2:    #16223a;
+            --border:       #1f2a3f;
+            --border-hover: #2c3b57;
+            --text:         #e6ecf5;
+            --text-muted:   #8ea0ba;
+            --accent:       #22c55e;
+            --accent-2:     #16a34a;
+            --accent-soft:  rgba(34,197,94,.12);
+            --danger:       #f87171;
+            --danger-soft:  rgba(248,113,113,.12);
+            --warning:      #fbbf24;
+            --warning-soft: rgba(251,191,36,.12);
+            --info:         #60a5fa;
+            --info-soft:    rgba(96,165,250,.12);
+            --shadow:       0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+            --shadow-hover: 0 8px 24px rgba(0,0,0,.5);
+            --header-bg:    rgba(11,18,32,0.85);
+            --code-bg:      #0f1729;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            transition: background-color .2s ease, color .2s ease;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: var(--header-bg);
+            backdrop-filter: saturate(180%) blur(12px);
+            -webkit-backdrop-filter: saturate(180%) blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 32px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        header h1::before {
+            content: "";
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            box-shadow: 0 4px 10px rgba(16,185,129,.35);
+        }
+
+        nav {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        nav a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 13px;
+            transition: all .15s ease;
+        }
+        nav a:hover {
+            background: var(--surface-2);
+            color: var(--text);
+        }
+        nav a.active {
+            background: var(--accent-soft);
+            color: var(--accent-2);
+        }
+
+        .nav-badge {
+            background: var(--danger);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            min-width: 16px;
+            text-align: center;
+        }
+
+        #theme-toggle {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all .15s ease;
+            margin-left: 8px;
+        }
+        #theme-toggle:hover {
+            background: var(--surface);
+            border-color: var(--border-hover);
+            transform: scale(1.05);
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 28px 24px 60px;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 22px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+            transition: box-shadow .2s ease, border-color .2s ease,
+                        background-color .2s ease;
+        }
+        .card:hover { border-color: var(--border-hover); }
+
+        .card h2 {
+            margin: 0 0 4px 0;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            color: var(--text);
+        }
+        .card h3 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .card p {
+            margin: 0 0 8px 0;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        thead th {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        thead th:first-child { border-top-left-radius: var(--radius-sm); }
+        thead th:last-child  { border-top-right-radius: var(--radius-sm); }
+
+        tbody td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+            color: var(--text);
+        }
+        tbody tr:hover { background: var(--surface-2); }
+        tbody tr:last-child td { border-bottom: none; }
+
+        code {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 12px;
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--info);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--surface-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all .15s ease;
+        }
+        .btn:hover {
+            background: var(--surface);
+            border-color: var(--border-hover);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: white;
+            border: none;
+            box-shadow: 0 4px 12px rgba(16,185,129,.25);
+        }
+        .btn-success:hover {
+            box-shadow: 0 6px 18px rgba(16,185,129,.35);
+            transform: translateY(-1px);
+        }
+        .btn-danger {
+            background: var(--danger-soft);
+            color: var(--danger);
+            border: 1px solid rgba(239,68,68,.3);
+        }
+        .btn-danger:hover { background: rgba(239,68,68,.18); }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="password"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 9px 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            color: var(--text);
+            outline: none;
+            transition: all .15s ease;
+            box-sizing: border-box;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: none;
+        }
+        .badge-sensor   { background: var(--info-soft);    color: var(--info); }
+        .badge-actuator { background: var(--warning-soft); color: var(--warning); }
+        .badge-success  { background: var(--accent-soft);  color: var(--accent-2); }
+        .badge-danger   { background: var(--danger-soft);  color: var(--danger); }
+        .badge-warning  { background: var(--warning-soft); color: var(--warning); }
+        .badge-info     { background: var(--info-soft);    color: var(--info); }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: none;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--text);
+            letter-spacing: -0.02em;
+            line-height: 1;
+        }
+        .stat-card.accent .value  { color: var(--accent-2); }
+        .stat-card.danger .value  { color: var(--danger); }
+
+        #toast-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-hover);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            font-size: 13px;
+            color: var(--text);
+            animation: slideIn .25s ease;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to   { transform: translateX(0);    opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            header { padding: 10px 16px; flex-wrap: wrap; gap: 12px; }
+            nav { margin-left: 0; width: 100%; }
+            nav a { padding: 6px 10px; font-size: 12px; }
+            #theme-toggle { width: 32px; height: 32px; font-size: 14px; }
+            .container { padding: 16px 12px 40px; }
+            .card { padding: 16px; }
+            .stat-card .value { font-size: 22px; }
+            thead th, tbody td { padding: 8px; font-size: 12px; }
+        }
+
+        [data-theme="dark"] .leaflet-container {
+            background: #0f1729;
+        }
+        [data-theme="dark"] .leaflet-popup-content-wrapper,
+        [data-theme="dark"] .leaflet-popup-tip {
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: 0 8px 24px rgba(0,0,0,.6);
+        }
+        [data-theme="dark"] .leaflet-bar a,
+        [data-theme="dark"] .leaflet-bar a:hover {
+            background: var(--surface);
+            color: var(--text);
+            border-color: var(--border);
+        }
+        [data-theme="dark"] .leaflet-bar a:hover {
+            background: var(--surface-2);
+        }
+    </style>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <header>
+        <h1>SmartFarm</h1>
+        <nav>
+            <a href="/"          {% if request.url.path == "/" %}class="active"{% endif %}>Дашборд</a>
+            <a href="/map/"      {% if request.url.path.startswith("/map") %}class="active"{% endif %}>Карта</a>
+            <a href="/zones/"    {% if request.url.path.startswith("/zones") %}class="active"{% endif %}>Зоны</a>
+            <a href="/devices/"  {% if request.url.path.startswith("/devices") %}class="active"{% endif %}>Устройства</a>
+            <a href="/charts"    {% if request.url.path.startswith("/charts") %}class="active"{% endif %}>Графики</a>
+            <a href="/scenarios" {% if request.url.path.startswith("/scenarios") %}class="active"{% endif %}>Сценарии</a>
+            <a href="/alerts/"   {% if request.url.path.startswith("/alerts") %}class="active"{% endif %}>
+                Журнал
+                {% if unread_alerts_count and unread_alerts_count > 0 %}
+                <span class="nav-badge">{{ unread_alerts_count }}</span>
+                {% endif %}
+            </a>
+            <button id="theme-toggle" title="Переключить тему" aria-label="Переключить тему">🌙</button>
+        </nav>
+    </header>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <div id="toast-container"></div>
+    <script src="/static/app.js"></script>
+
+    <script>
+        (function() {
+            const root = document.documentElement;
+            const btn  = document.getElementById('theme-toggle');
+
+            function current() { return root.getAttribute('data-theme') || 'light'; }
+            function apply(theme) {
+                root.setAttribute('data-theme', theme);
+                btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+                btn.title = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+                try { localStorage.setItem('smartfarm-theme', theme); } catch(e) {}
+            }
+
+            apply(current());
+
+            btn.addEventListener('click', () => {
+                apply(current() === 'dark' ? 'light' : 'dark');
+            });
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                try {
+                    if (!localStorage.getItem('smartfarm-theme')) {
+                        apply(e.matches ? 'dark' : 'light');
+                    }
+                } catch (_) {}
+            });
+        })();
+    </script>
+</body>
+</html>

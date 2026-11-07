@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Управление сценариями автоматизации</h2>
+    <p style="color: #7f8c8d; font-size: 14px;">Создавайте правила автоматического включения оборудования.</p>
+</div>
+
+<div class="card">
+    <h3>Создать новый сценарий</h3>
+    <form id="scenario-form" onsubmit="createScenario(event)" style="margin-top: 15px;">
+        <p>
+            <label style="font-weight: bold; font-size: 13px;">Название:</label><br>
+            <input type="text" id="sc-name" placeholder="Напр. Полив по сухой почве" required style="width: 100%; padding: 8px; margin-top: 5px;">
+        </p>
+        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Зона:</label><br>
+                <select id="sc-zone" style="width: 100%; padding: 8px; margin-top: 5px;">
+                    <option value="">-- Все зоны --</option>
+                    {% for z in zones %}
+                    <option value="{{ z.id }}">{{ z.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Параметр датчика:</label><br>
+                <select id="sc-param" style="width: 100%; padding: 8px; margin-top: 5px;">
+                    <option value="humidity">Влажность (%)</option>
+                    <option value="temperature">Температура (°C)</option>
+                    <option value="ph">Уровень pH</option>
+                    <option value="co2">Уровень CO2</option>
+                    <option value="tank_level">Наполненность бака (%)</option>
+                </select>
+            </div>
+        </div>
+        <div style="display: flex; gap: 15px; margin-top: 10px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Условие:</label><br>
+                <select id="sc-cond" style="width: 100%; padding: 8px; margin-top: 5px;">
+                    <option value="<">Меньше (&lt;)</option>
+                    <option value=">">Больше (&gt;)</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Пороговое значение:</label><br>
+                <input type="number" step="0.1" id="sc-thresh" placeholder="Напр. 35.0" required style="width: 100%; padding: 8px; margin-top: 5px;">
+            </div>
+        </div>
+        <div style="display: flex; gap: 15px; margin-top: 10px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Исполнительный механизм:</label><br>
+                <select id="sc-dev" style="width: 100%; padding: 8px; margin-top: 5px;" required>
+                    {% set actuators = devices | selectattr('category', 'equalto', 'actuator') | list %}
+                    {% for d in actuators %}
+                    <option value="{{ d.device_id }}">{{ d.name }} ({{ d.device_id }})</option>
+                    {% endfor %}
+                    {% if not actuators %}
+                    <option value="" disabled>— Нет исполнительных устройств —</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-weight: bold; font-size: 13px;">Команда и время работы:</label><br>
+                <div style="display: flex; gap: 5px; margin-top: 5px;">
+                    <select id="sc-cmd" style="padding: 8px; flex: 1;">
+                        <option value="ON">Включить (ON)</option>
+                        <option value="OFF">Выключить (OFF)</option>
+                    </select>
+                    <input type="number" id="sc-dur" placeholder="сек" title="Время работы в секундах" style="width: 80px; padding: 8px;">
+                </div>
+            </div>
+        </div>
+        <button class="btn btn-success" type="submit" style="margin-top: 15px;">Создать сценарий</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Активные сценарии</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>Условие</th>
+                <th>Действие</th>
+                <th>Время работы</th>
+                <th>Управление</th>
+            </tr>
+        </thead>
+        <tbody id="scenarios-table-body">
+            {% for sc in scenarios %}
+            <tr id="sc-row-{{ sc.id }}">
+                <td><b>{{ sc.name }}</b></td>
+                <td><code>{{ sc.trigger_param }} {{ sc.condition }} {{ sc.threshold_value }}</code></td>
+                <td><b>{{ sc.action_command }}</b> -> <code>{{ sc.action_device_id or '—' }}</code></td>
+                <td>{{ sc.duration_seconds }} сек.</td>
+                <td><button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteScenario({ sc_id })">Удалить</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align: center; color: #7f8c8d; padding: 25px;">Сценариев нет.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function createScenario(e) {
+    e.preventDefault();
+    let payload = {
+        name:             document.getElementById('sc-name').value,
+        zone_id:          document.getElementById('sc-zone').value,
+        trigger_param:    document.getElementById('sc-param').value,
+        condition:        document.getElementById('sc-cond').value,
+        threshold_value:  document.getElementById('sc-thresh').value,
+        action_device_id: document.getElementById('sc-dev').value,
+        action_command:   document.getElementById('sc-cmd').value,
+        duration_seconds: document.getElementById('sc-dur').value || 0
+    };
+    let res = await fetch('/scenarios/add-ajax', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) location.reload();
+}
+
+async function deleteScenario(id) {
+    if (!confirm('Удалить сценарий?')) return;
+    let res = await fetch(`/scenarios/${id}/delete-ajax`, { method: 'POST' });
+    if (res.ok) {
+        let row = document.getElementById(`sc-row-${id}`);
+        if (row) row.remove();
+    }
+}
+</script>
+{% endblock %}
